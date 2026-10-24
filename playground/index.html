@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opposable-thumbs playground</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 1rem; line-height: 1.4; }
+  main { display: flex; flex-wrap: wrap; gap: 2rem; }
+  section { margin-bottom: 1.5rem; }
+  table { border-collapse: collapse; }
+  td { padding: 2px 6px 2px 0; vertical-align: middle; }
+  td button { width: 100%; text-align: left; }
+  input[type=text] { width: 9rem; }
+  #operations-list li { margin: 2px 0; }
+  #url { word-break: break-all; }
+  #error { color: #b00; white-space: pre-wrap; }
+  figure { margin: 0 0 1rem; }
+  figure img { max-width: 100%; max-height: 80vh; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+<h1>opposable-thumbs playground</h1>
+<p>
+  Click an operation to add it, using the arguments next to it. Operations run in
+  the order added, except <code>crop</code> and <code>cropratio</code>, which
+  always run first. Choose PNG or WebP to see transparency, e.g. from
+  <code>circle</code>, <code>rounded</code> or <code>rotate</code>.
+</p>
+
+<main>
+<div>
+  <section>
+    <h2>Operations</h2>
+    <table id="operations"></table>
+  </section>
+</div>
+
+<div>
+  <section>
+    <h2>Output</h2>
+    <label>Format
+      <select id="format">
+        <option value="">same as source</option>
+        <option>jpeg</option>
+        <option>png</option>
+        <option selected>webp</option>
+        <option>gif</option>
+        <option>bmp</option>
+        <option>tiff</option>
+      </select>
+    </label>
+    <label>Quality (JPEG and WebP, 1&ndash;100)
+      <input id="quality" type="number" min="1" max="100" placeholder="75">
+    </label>
+  </section>
+
+  <section>
+    <h2>Applied</h2>
+    <ol id="operations-list"></ol>
+    <button id="clear">Clear</button>
+  </section>
+
+  <section>
+    <h2>URL</h2>
+    <a id="url" target="_blank"></a>
+  </section>
+
+  <section>
+    <h2>Result</h2>
+    <p id="info"></p>
+    <p id="error"></p>
+    <figure><img id="result" alt="Result"></figure>
+  </section>
+
+  <section>
+    <h2>Source</h2>
+    <p id="source-info"></p>
+    <figure><img id="source" alt="Source"></figure>
+    <p>
+      <a href="https://unsplash.com/photos/person-standing-inside-the-brown-boat-parked-on-the-seashore-fzEOvcazEtI">Photo</a>
+      by <a href="https://unsplash.com/@fr33water">Frankie Spontelli</a> on Unsplash.
+    </p>
+  </section>
+</div>
+</main>
+
+<script>
+const IMAGE = "playground/beach.jpg";
+
+// name, example arguments, what it does
+const OPERATIONS = [
+  ["autocontrast", "", "stretch to the full range"],
+  ["blur", "", "a light blur"],
+  ["brightness", "1.4", "factor, 1 = unchanged"],
+  ["circle", "", "transparent outside a circle (use PNG or WebP)"],
+  ["color", "0.3", "saturation factor, 0 = grey"],
+  ["colorize", "202060,ffd080", "black and white colours (hex)"],
+  ["contour", "", ""],
+  ["contrast", "1.5", "factor, 1 = unchanged"],
+  ["crop", "100,50,400,350", "left, top, right, bottom in pixels"],
+  ["cropratio", "1", "centre crop to a width / height ratio"],
+  ["emboss", "", ""],
+  ["equalize", "", "even out the histogram"],
+  ["fit", "300,300", "cover width, height, then crop"],
+  ["fliphoriz", "", "mirror left to right"],
+  ["flipvert", "", "mirror top to bottom"],
+  ["gblur", "8", "Gaussian blur radius"],
+  ["grayscale", "", ""],
+  ["invert", "", ""],
+  ["pad", "300,300,ffffff", "fit inside, then pad with a colour"],
+  ["posterize", "3", "bits per channel, 1-8"],
+  ["resize", "300,300", "width, height (may stretch)"],
+  ["resizemax", "300,300", "fit inside width, height"],
+  ["resizemin", "300,300", "cover width, height"],
+  ["resizepc", "0.5,0.5", "width, height as fractions"],
+  ["rotate", "15", "degrees anticlockwise, optional fill colour (hex)"],
+  ["rounded", "40", "corner radius in pixels (use PNG or WebP)"],
+  ["sharpness", "3", "factor, 1 = unchanged"],
+  ["solarize", "128", "invert above a threshold, 0-255"],
+  ["unsharp", "2,150,3", "radius, percent, threshold"],
+];
+
+const applied = ["fit,300,300"];
+const $ = (id) => document.getElementById(id);
+
+for (const [name, example, description] of OPERATIONS) {
+  const row = $("operations").insertRow();
+  const button = document.createElement("button");
+  button.textContent = name;
+  row.insertCell().append(button);
+
+  const args = document.createElement("input");
+  args.type = "text";
+  args.value = example;
+  args.hidden = example === "";
+  row.insertCell().append(args);
+  row.insertCell().textContent = description;
+
+  button.onclick = () => {
+    applied.push(args.value ? `${name},${args.value}` : name);
+    update();
+  };
+}
+
+$("clear").onclick = () => { applied.length = 0; update(); };
+$("format").onchange = update;
+$("quality").oninput = update;
+
+function thumbUrl(operations, format, quality) {
+  const params = new URLSearchParams({ file: IMAGE });
+  if (operations.length) params.set("p", operations.join("|"));
+  if (format) params.set("format", format);
+  if (quality) params.set("quality", quality);
+  return "/thumb?" + params;
+}
+
+let latest = 0;
+
+async function update() {
+  $("operations-list").replaceChildren(
+    ...applied.map((op, i) => {
+      const remove = document.createElement("button");
+      remove.textContent = "x";
+      remove.title = "Remove";
+      remove.onclick = () => { applied.splice(i, 1); update(); };
+      const item = document.createElement("li");
+      item.append(remove, " ", op);
+      return item;
+    })
+  );
+
+  const url = thumbUrl(applied, $("format").value, $("quality").value);
+  $("url").href = url;
+  $("url").textContent = decodeURIComponent(url);
+
+  // ignore responses to requests made before the latest one
+  const request = ++latest;
+  const response = await fetch(url);
+  if (request !== latest) return;
+
+  if (!response.ok) {
+    $("info").textContent = `${response.status} ${response.statusText}`;
+    $("error").textContent = await response.text();
+    $("result").hidden = true;
+    return;
+  }
+
+  const blob = await response.blob();
+  if (request !== latest) return;
+  $("error").textContent = "";
+  $("result").hidden = false;
+  show(blob, $("result"), $("info"));
+}
+
+// show an image, and its size, type and file size
+function show(blob, image, info) {
+  image.onload = () => {
+    const kb = (blob.size / 1024).toFixed(1);
+    info.textContent = `${image.naturalWidth} × ${image.naturalHeight} px, ${blob.type}, ${kb} KB`;
+  };
+  // release the previous image, or every update would keep one in memory
+  if (image.src.startsWith("blob:")) URL.revokeObjectURL(image.src);
+  image.src = URL.createObjectURL(blob);
+}
+
+// the original file, not a thumbnail of it, so its real size is shown
+fetch("/source")
+  .then((response) => response.blob())
+  .then((blob) => show(blob, $("source"), $("source-info")));
+update();
+</script>
+</body>
+</html>

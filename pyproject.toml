@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opposable-thumbs"
+version = "0.1.0"
+description = "Thumbnails and image manipulation driven by URL query strings, for any Python project."
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENCE"]
+authors = [{ name = "Jon Combe", email = "pypi@joncombe.net" }]
+requires-python = ">=3.11"
+# the minimums include security fixes for parsing untrusted images (Pillow)
+# and fetching urls (requests)
+dependencies = [
+    "pillow>=10.3",
+    "requests>=2.32.4",
+]
+keywords = ["thumbnail", "image", "resize", "crop", "pillow", "django", "flask"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Framework :: Flask",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Multimedia :: Graphics",
+    "Typing :: Typed",
+]
+
+# framework integrations: pip install opposable-thumbs[django]
+[project.optional-dependencies]
+django = ["django>=5.2"]
+flask = ["flask>=3.0"]
+
+[project.urls]
+Homepage = "https://github.com/joncombe/opposable-thumbs"
+Issues = "https://github.com/joncombe/opposable-thumbs/issues"
+
+[project.scripts]
+opposable-thumbs = "opposable_thumbs.cli:main"
+
+[dependency-groups]
+dev = [
+    "django>=5.2",
+    "flask>=3.0",
+    "pytest>=8",
+    "ruff>=0.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opposable_thumbs"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src",
+    "tests",
+    "README.md",
+    "DEVELOP.md",
+    "CHANGELOG.md",
+    "docs",
+    "LICENCE",
+    "AUTHORS",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+# a warning (e.g. a file left open) fails the test that caused it
+filterwarnings = ["error"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["helpers"]
