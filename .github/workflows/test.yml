@@ -1,0 +1,43 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # so the release workflow can run the tests first
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python }}${{ matrix.oldest && ' (oldest dependencies)' || '' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+        oldest: [false]
+        include:
+          # the lowest versions of Pillow and requests that pyproject.toml allows
+          - python: "3.11"
+            oldest: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - name: Run the tests
+        run: |
+          if [ "${{ matrix.oldest }}" = "true" ]; then
+            uv run --isolated --resolution lowest-direct --python ${{ matrix.python }} pytest
+          else
+            uv run --locked --python ${{ matrix.python }} pytest
+          fi
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
