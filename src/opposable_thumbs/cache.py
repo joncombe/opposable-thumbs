@@ -3,6 +3,7 @@ import os
 import re
 import time
 import uuid
+from contextlib import contextmanager
 
 # only files named like cache entries are deleted, in case a cache folder
 # shares a directory with other files: "<md5>", or "<md5>.<uuid>.tmp" left by
@@ -28,15 +29,23 @@ def is_fresh(path, max_age):
 
 
 def write_cache_file(path, data):
-    # write to a temp file and rename it into place, so a concurrent request
-    # never reads a partly written file. the folder is created if missing
+    with cache_writer(path) as f:
+        f.write(data)
+
+
+@contextmanager
+def cache_writer(path):
+    # a file to write a cache entry to. it is a temp file renamed into place
+    # when the block ends, so a concurrent request never reads a partly
+    # written file, and is deleted instead if the block raises. the folder is
+    # created if missing
     os.makedirs(os.path.dirname(path), exist_ok=True)
     temp_path = f"{path}.{uuid.uuid4().hex}.tmp"
     try:
         with open(temp_path, "xb") as f:
-            f.write(data)
+            yield f
         os.replace(temp_path, path)
-    except Exception:
+    except BaseException:
         try:
             os.remove(temp_path)
         except OSError:

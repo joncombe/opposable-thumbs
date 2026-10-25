@@ -6,7 +6,9 @@ There are two optional caches, each turned on by setting its folder in the
 [`Config`](configuration.md). Folders are created when first needed.
 
 - `input_cache_dir` keeps the original images downloaded from `url` sources,
-  so different thumbnails of the same image only download it once.
+  so different thumbnails of the same image only download it once. Images
+  are downloaded straight to it, so a large one isn't held in memory.
+  Without it, a download larger than 5 MB goes to a temporary file instead.
 - `output_cache_dir` keeps finished thumbnails, so a repeated request skips
   downloading and processing. The cache key is the source, operations,
   `format` and `quality` (and `apply_exif_orientation`), so other query

@@ -4,6 +4,23 @@ All notable changes to this project are listed here. It follows
 [semantic versioning](https://semver.org): while the version is 0.x, a minor
 release may change the API.
 
+## 0.2.0
+
+- `crop` and `cropratio` are no longer limited by `max_output_size`, as a crop
+  can't make an image larger. A crop of a large source works, e.g. before a
+  resize. `max_output_size` now only applies to `fit`, `pad`, `resize`,
+  `resizemax`, `resizemin`, `resizepc` and `rotate`.
+- The part of a `crop` box outside the image is ignored, rather than filled
+  in, and a box entirely outside the image is an error ("Crop box outside the
+  image").
+- JPEGs are decoded at a reduced size when the operations include a `crop`
+  followed by a resize, with the crop box scaled to match. This was turned off
+  by any crop before.
+- Downloaded `url` sources are written straight to the input cache, or to a
+  temporary file if there isn't one, instead of being held in memory.
+- Error messages for limits name the setting, e.g. "Output larger than 4000px
+  (max_output_size)".
+
 ## 0.1.0
 
 The first release.

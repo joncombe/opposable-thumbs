@@ -3,10 +3,10 @@ import os
 import pytest
 import requests
 
-from opposable_thumbs import Config, handle_request
+from opposable_thumbs import Config, handle_request, thumbnail
 from opposable_thumbs.sources import is_allowed_url, root_file_path
 
-from helpers import FakeResponse, png_bytes
+from helpers import FakeResponse, open_result, png_bytes
 
 ALLOWED_URLS = [
     "https://example.com",
@@ -134,7 +134,7 @@ def test_format_not_in_allowed_formats_is_404(images, thumb):
 def test_too_many_pixels(images, thumb):
     config = Config(signed_urls=False, roots={"images": images}, max_source_pixels=100)
     result = thumb("rgb.png", config=config)
-    assert result.errors == ("Source image larger than 100 pixels",)
+    assert result.errors == ("Source image larger than 100 pixels (max_source_pixels)",)
 
 
 # urls (requests.get is replaced by the fake_fetch fixture)
@@ -162,9 +162,13 @@ def test_fetch(fake_fetch):
         (
             FakeResponse(headers={"Content-Length": "999"}),
             400,
-            "Source image larger than 100 bytes",
+            "Source image larger than 100 bytes (max_download_bytes)",
         ),
-        (FakeResponse(b"x" * 101), 400, "Source image larger than 100 bytes"),
+        (
+            FakeResponse(b"x" * 101),
+            400,
+            "Source image larger than 100 bytes (max_download_bytes)",
+        ),
     ],
 )
 def test_fetch_response_errors(fake_fetch, response, status, error):
@@ -179,7 +183,11 @@ def test_fetch_response_errors(fake_fetch, response, status, error):
 @pytest.mark.parametrize(
     "error, status, message",
     [
-        (requests.ConnectTimeout(), 504, "Timed out after 10s fetching source image"),
+        (
+            requests.ConnectTimeout(),
+            504,
+            "Timed out after 10s fetching source image (fetch_timeout)",
+        ),
         (requests.ConnectionError(), 502, "Failed to fetch source image"),
     ],
 )
@@ -187,6 +195,16 @@ def test_fetch_exceptions(fake_fetch, error, status, message):
     fake_fetch.error = error
     result = handle_request(URL_CONFIG, URL_QUERY)
     assert (result.status, result.errors) == (status, (message,))
+
+
+@pytest.mark.parametrize("spool_max_size", [10_000_000, 100])
+def test_download_without_input_cache(fake_fetch, monkeypatch, spool_max_size):
+    # kept in memory up to SPOOL_MAX_SIZE, then in a temporary file. the
+    # tests fail on a file left open
+    monkeypatch.setattr(thumbnail, "SPOOL_MAX_SIZE", spool_max_size)
+    fake_fetch.response = FakeResponse(png_bytes(size=(400, 300)))
+    result = handle_request(URL_CONFIG, URL_QUERY + "&p=resize,40,30")
+    assert open_result(result).size == (40, 30)
 
 
 def test_fetched_non_image_is_404(fake_fetch):

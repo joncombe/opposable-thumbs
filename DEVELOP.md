@@ -135,7 +135,8 @@ A thumbnail is made in this order (see `_Job.check` and `_Job.make`):
 4. Decode it, at a reduced size if it is a JPEG and the operations allow it
    (see `reduction_limit()`), then apply the EXIF orientation and convert it
    to RGB, RGBA or L.
-5. Run the operations, crops first.
+5. Run the operations, crops first. If the JPEG was decoded at a reduced
+   size, `crop` boxes are scaled to match (see `scale_crop()`).
 6. Save in the output format, write it to the output cache, and return it.
 
 `handle_request()` then turns the image or the errors into a `Result`, with
@@ -208,7 +209,8 @@ the README.
      arguments; they are reported as "Invalid sepia arguments". Converting
      with `int()` and `float()` and indexing `args` does this for you.
    - Raise `OperationError("...")` for a more specific message, e.g. a limit.
-   - If it changes the size, call `check_output_size()` first.
+   - If it can make the image larger, call `check_output_size()` first. If it
+     can only make it smaller, `check_not_empty()` is enough.
    - If it uses a Pillow function that refuses or mishandles an alpha channel,
      wrap it in `apply_without_alpha()`.
    - Use `@operation("name", crop=True)` only for crops, which run first.

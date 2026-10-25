@@ -114,9 +114,10 @@ def test_invalid_arguments(thumb, op):
 @pytest.mark.parametrize(
     "op, error",
     [
-        ("resize,5000,10", "Output larger than 4000px"),
-        ("resizepc,1000,1", "Output larger than 4000px"),
-        ("crop,0,0,5000,10", "Output larger than 4000px"),
+        ("resize,5000,10", "Output larger than 4000px (max_output_size)"),
+        ("resizepc,1000,1", "Output larger than 4000px (max_output_size)"),
+        ("crop,100,100,200,200", "Crop box outside the image"),
+        ("crop,-20,0,-10,10", "Crop box outside the image"),
         ("crop,0,0,0,10", "Output smaller than 1px"),
         ("crop,10,10,0,0", "Output smaller than 1px"),
         ("resize,0,10", "Output smaller than 1px"),
@@ -124,11 +125,11 @@ def test_invalid_arguments(thumb, op):
         ("resizepc,-1,1", "Output smaller than 1px"),
         ("cropratio,inf", "Output smaller than 1px"),
         ("cropratio,1e9", "Output smaller than 1px"),
-        ("gblur,101", "gblur radius larger than 100"),
-        ("unsharp,101", "unsharp radius larger than 100"),
-        ("fit,5000,10", "Output larger than 4000px"),
+        ("gblur,101", "gblur radius larger than 100 (max_blur_radius)"),
+        ("unsharp,101", "unsharp radius larger than 100 (max_blur_radius)"),
+        ("fit,5000,10", "Output larger than 4000px (max_output_size)"),
         ("fit,0,10", "Output smaller than 1px"),
-        ("pad,10,5000", "Output larger than 4000px"),
+        ("pad,10,5000", "Output larger than 4000px (max_output_size)"),
     ],
 )
 def test_limits(thumb, op, error):
@@ -144,15 +145,15 @@ def test_limits_come_from_config(images, thumb):
         max_blur_radius=1,
     )
     assert thumb("rgb.png", "p=resize,21,10", config=config).errors == (
-        "Output larger than 20px",
+        "Output larger than 20px (max_output_size)",
     )
     assert thumb("rgb.png", "p=gblur,2", config=config).errors == (
-        "gblur radius larger than 1",
+        "gblur radius larger than 1 (max_blur_radius)",
     )
     # a 40 x 30 image rotated 30 degrees is about 50 x 46
     assert thumb("rgb.png", "p=resize,16,12|rotate,30", config=config).status == 200
     assert thumb("rgb.png", "p=rotate,30", config=config).errors == (
-        "Output larger than 20px",
+        "Output larger than 20px (max_output_size)",
     )
 
 
@@ -161,8 +162,30 @@ def test_every_operation_error_is_reported(thumb):
     assert result.errors == (
         "Invalid resize arguments",
         "Invalid rotate arguments",
-        "gblur radius larger than 100",
+        "gblur radius larger than 100 (max_blur_radius)",
     )
+
+
+def test_crops_are_not_limited_by_max_output_size(images, thumb):
+    # crops can't make an image larger, so a crop of a source bigger than
+    # max_output_size works, e.g. before a resize
+    config = Config(signed_urls=False, roots={"images": images}, max_output_size=20)
+    result = thumb(
+        "rgb.png", "p=crop,0,0,40,30|cropratio,1|resize,10,10", config=config
+    )
+    assert open_result(result).size == (10, 10)
+
+
+@pytest.mark.parametrize(
+    "box, size",
+    [
+        ("-10,-10,20,20", (20, 20)),
+        ("30,20,100,100", (10, 10)),
+        ("-100,-100,100,100", (40, 30)),
+    ],
+)
+def test_crop_box_is_clamped_to_the_image(thumb, box, size):
+    assert open_result(thumb("rgb.png", f"p=crop,{box}")).size == size
 
 
 def test_crops_run_first(thumb):

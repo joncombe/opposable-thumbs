@@ -2,11 +2,13 @@ import hashlib
 import logging
 import math
 import os
+import tempfile
+from contextlib import ExitStack
 from io import BytesIO
 
 from PIL import Image
 
-from .cache import cache_key, is_fresh, write_cache_file
+from .cache import cache_key, cache_writer, is_fresh, write_cache_file
 from .errors import ThumbnailError
 from .imaging import (
     FORMAT_ALIASES,
@@ -23,12 +25,17 @@ from .operations import (
     OPERATIONS,
     OperationError,
     reduction_limit,
+    scale_crop,
 )
 from .query import is_signed, normalise_operations, parse_query, signing_key
 from .result import Result, Thumbnail
 from .sources import SourceError, fetch, is_allowed_url, root_file_path
 
 logger = logging.getLogger("opposable_thumbs")
+
+# a downloaded source larger than this is kept in a temporary file rather
+# than in memory, when there is no input cache to download it to
+SPOOL_MAX_SIZE = 5 * 1024 * 1024
 
 
 def make_thumbnail(
@@ -154,6 +161,9 @@ class _Job:
         self.image = None
         self.source_format = None
         self.format = None
+        # how many times smaller than the source the image was decoded, across
+        # and down, see reduce_decoding() and open_source_from()
+        self.scale = (1, 1)
 
     def add_error(self, error, status=400):
         # keep every error, so a request with several problems reports them
@@ -209,7 +219,9 @@ class _Job:
 
     def check_operations(self):
         if len(self.operations) > self.config.max_operations:
-            self.add_error(f"More than {self.config.max_operations} operations")
+            self.add_error(
+                f"More than {self.config.max_operations} operations (max_operations)"
+            )
             return False
 
         unknown = [op[0] for op in self.operations if op[0] not in OPERATIONS]
@@ -254,29 +266,42 @@ class _Job:
 
     # making the image
 
-    def read_url(self):
-        # the url's bytes, from the input cache when it has a fresh copy
-        if not self.config.input_cache_dir:
-            return fetch(self.source, self.config)
+    def download(self, files):
+        # the url's image, as a path or an open file. it is downloaded to the
+        # input cache when there is one (or read from it, if it has a fresh
+        # copy), otherwise to a temporary file closed by `files`, an
+        # ExitStack. either way it is never held in memory all at once
+        if self.config.input_cache_dir:
+            path = os.path.join(self.config.input_cache_dir, cache_key(self.source))
+            if is_fresh(path, self.config.cache_max_age):
+                return path
+            try:
+                with cache_writer(path) as f:
+                    fetch(self.source, self.config, f)
+                return path
+            except OSError as e:
+                # a cache that can't be written to only makes things slower
+                logger.warning("Can't write cache file %s: %s", path, e)
 
-        path = os.path.join(self.config.input_cache_dir, cache_key(self.source))
-        if is_fresh(path, self.config.cache_max_age):
-            with open(path, "rb") as f:
-                return f.read()
-
-        data = fetch(self.source, self.config)
-        _write_cache(path, data)
-        return data
+        f = files.enter_context(tempfile.SpooledTemporaryFile(SPOOL_MAX_SIZE))
+        fetch(self.source, self.config, f)
+        f.seek(0)
+        return f
 
     def open_source(self):
-        # a file is opened by path, so only its header is read until the size
-        # has been checked
+        # the source is closed when this returns
+        with ExitStack() as files:
+            return self.open_source_from(files)
+
+    def open_source_from(self, files):
+        # a file is opened by path, or a download from a file, so only its
+        # header is read until the size has been checked
         formats = list(self.config.allowed_formats)
         try:
             if self.source_type == "file":
                 source = Image.open(self.source, formats=formats)
             else:
-                source = Image.open(BytesIO(self.read_url()), formats=formats)
+                source = Image.open(self.download(files), formats=formats)
         except SourceError as e:
             self.add_error(str(e), e.status)
             return False
@@ -291,7 +316,8 @@ class _Job:
             width, height = source.size
             if width * height > self.config.max_source_pixels:
                 self.add_error(
-                    f"Source image larger than {self.config.max_source_pixels} pixels"
+                    f"Source image larger than {self.config.max_source_pixels} "
+                    "pixels (max_source_pixels)"
                 )
                 return False
 
@@ -303,6 +329,13 @@ class _Job:
             except Exception:
                 self.add_error("Failed to open image", 404)
                 return False
+
+            # how many times smaller it was decoded, if it was, across and
+            # down the image the operations see
+            x_scale, y_scale = width / source.width, height / source.height
+            if self.config.apply_exif_orientation and _turns_sideways(source):
+                x_scale, y_scale = y_scale, x_scale
+            self.scale = (x_scale, y_scale)
 
             # keep the format: a converted image doesn't have one
             self.source_format = source.format
@@ -339,6 +372,8 @@ class _Job:
         ordered = sorted(self.operations, key=lambda op: op[0] not in CROP_OPERATIONS)
         for name, *args in ordered:
             try:
+                if name == "crop" and self.scale != (1, 1):
+                    args = scale_crop(args, *self.scale)
                 self.image = OPERATIONS[name](self.image, args, self.config)
             except OperationError as e:
                 self.add_error(str(e))

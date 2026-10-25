@@ -43,10 +43,17 @@ def operation(name, crop=False):
 
 def check_output_size(width, height, config):
     # refuse to create an image wider or taller than max_output_size, e.g.
-    # from resize,20000,20000 or a crop box far outside the image. an empty
-    # image can't be saved, so refuse that too
+    # from resize,20000,20000. only for operations that can make an image
+    # larger: crops can't, and max_source_pixels limits the source
     if width > config.max_output_size or height > config.max_output_size:
-        raise OperationError(f"Output larger than {config.max_output_size}px")
+        raise OperationError(
+            f"Output larger than {config.max_output_size}px (max_output_size)"
+        )
+    check_not_empty(width, height)
+
+
+def check_not_empty(width, height):
+    # an empty image can't be saved
     if width < 1 or height < 1:
         raise OperationError("Output smaller than 1px")
 
@@ -110,9 +117,33 @@ def cropratio_size(width, height, ratio):
 
 @operation("crop", crop=True)
 def crop(image, args, config):
+    # crop to a box, in pixels. the part of the box outside the image is
+    # ignored, so it can't make the image larger
     left, top, right, bottom = [int(a) for a in args[:4]]
-    check_output_size(right - left, bottom - top, config)
+    check_not_empty(right - left, bottom - top)
+    left, top = max(left, 0), max(top, 0)
+    right, bottom = min(right, image.width), min(bottom, image.height)
+    if right <= left or bottom <= top:
+        raise OperationError("Crop box outside the image")
     return image.crop((left, top, right, bottom))
+
+
+def scale_crop(args, x_scale, y_scale):
+    # crop's arguments for an image decoded x_scale x y_scale times smaller,
+    # as the box is given in the source's pixels
+    left, top, right, bottom = [int(a) for a in args[:4]]
+    scaled = [
+        round(left / x_scale),
+        round(top / y_scale),
+        round(right / x_scale),
+        round(bottom / y_scale),
+    ]
+    # a box that isn't empty mustn't become empty by rounding
+    if right > left:
+        scaled[2] = max(scaled[2], scaled[0] + 1)
+    if bottom > top:
+        scaled[3] = max(scaled[3], scaled[1] + 1)
+    return scaled
 
 
 @operation("cropratio", crop=True)
@@ -128,14 +159,14 @@ def cropratio(image, args, config):
         # same height, change width
         target_width = int(round(height * target_ratio))
         left = int(round((width / 2) - (target_width / 2)))
-        check_output_size(target_width, height, config)
+        check_not_empty(target_width, height)
         return image.crop((left, 0, left + target_width, height))
 
     if target_ratio > orig_ratio:
         # same width, change height
         target_height = int(round(width / target_ratio))
         top = int(round((height / 2) - (target_height / 2)))
-        check_output_size(width, target_height, config)
+        check_not_empty(width, target_height)
         return image.crop((0, top, width, top + target_height))
 
     return image
@@ -232,7 +263,9 @@ def flipvert(image, args, config):
 def gblur(image, args, config):
     radius = int(args[0])
     if radius > config.max_blur_radius:
-        raise OperationError(f"gblur radius larger than {config.max_blur_radius}")
+        raise OperationError(
+            f"gblur radius larger than {config.max_blur_radius} (max_blur_radius)"
+        )
     return image.filter(ImageFilter.GaussianBlur(radius=radius))
 
 
@@ -388,7 +421,9 @@ def unsharp(image, args, config):
     percent = int(args[1]) if len(args) > 1 else 150
     threshold = int(args[2]) if len(args) > 2 else 3
     if radius > config.max_blur_radius:
-        raise OperationError(f"unsharp radius larger than {config.max_blur_radius}")
+        raise OperationError(
+            f"unsharp radius larger than {config.max_blur_radius} (max_blur_radius)"
+        )
     if radius < 0 or percent < 0 or threshold < 0:
         raise ValueError("arguments can't be negative")
     mask = ImageFilter.UnsharpMask(radius=radius, percent=percent, threshold=threshold)
@@ -398,7 +433,7 @@ def unsharp(image, args, config):
 # reduced decoding. a JPEG can be decoded at 1/2, 1/4 or 1/8 of its size,
 # which is much faster and needs much less memory. that is only the same as
 # decoding it in full and shrinking it later if nothing before the resize
-# depends on the image's scale
+# depends on the image's scale, apart from crops, whose boxes are scaled
 
 # operations unaffected by the image's scale, which may come before the resize
 SCALE_FREE_OPERATIONS = {
@@ -429,6 +464,15 @@ def reduction_limit(operations, width, height):
                 continue
             if name == "cropratio":
                 width, height = cropratio_size(width, height, float(args[0]))
+                continue
+            if name == "crop":
+                # the part of the box inside the image. its arguments are
+                # scaled to match, see scale_crop()
+                left, top, right, bottom = [int(a) for a in args[:4]]
+                width = min(right, width) - max(left, 0)
+                height = min(bottom, height) - max(top, 0)
+                if width < 1 or height < 1:
+                    return 1
                 continue
 
             # the first operation that sets the size decides the limit

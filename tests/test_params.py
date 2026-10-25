@@ -43,7 +43,7 @@ def test_empty_p_means_no_operations(thumb):
         ("quality=5.5", "Invalid quality, use 1 to 100"),
         ("quality=", "Invalid quality, use 1 to 100"),
         ("quality=²", "Invalid quality, use 1 to 100"),
-        ("p=" + "|".join(["blur"] * 11), "More than 10 operations"),
+        ("p=" + "|".join(["blur"] * 11), "More than 10 operations (max_operations)"),
     ],
 )
 def test_invalid_parameters(thumb, query, error):

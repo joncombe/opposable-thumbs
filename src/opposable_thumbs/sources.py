@@ -67,14 +67,14 @@ def is_allowed_url(url, allowed_urls):
     return False
 
 
-def fetch(url, config):
-    # redirects are not followed: an allowed source could otherwise redirect
-    # to a disallowed one. the body is streamed so an oversized response is
-    # abandoned at max_download_bytes rather than read in full. fetch_timeout
-    # applies to connecting and to each wait for data, not to the whole
-    # download
+def fetch(url, config, out):
+    # download the url into `out`, a binary file. redirects are not followed:
+    # an allowed source could otherwise redirect to a disallowed one. the body
+    # is streamed to `out`, so it is never all in memory, and an oversized
+    # response is abandoned at max_download_bytes. fetch_timeout applies to
+    # connecting and to each wait for data, not to the whole download
     max_bytes = config.max_download_bytes
-    too_large = f"Source image larger than {max_bytes} bytes"
+    too_large = f"Source image larger than {max_bytes} bytes (max_download_bytes)"
 
     try:
         with requests.get(
@@ -92,18 +92,19 @@ def fetch(url, config):
             if declared > max_bytes:
                 raise SourceError(too_large, 400)
 
-            content = bytearray()
+            size = 0
             for chunk in r.iter_content(chunk_size=64 * 1024):
-                content.extend(chunk)
-                if len(content) > max_bytes:
+                size += len(chunk)
+                if size > max_bytes:
                     raise SourceError(too_large, 400)
+                out.write(chunk)
     except requests.Timeout as e:
         raise SourceError(
-            f"Timed out after {config.fetch_timeout}s fetching source image", 504
+            f"Timed out after {config.fetch_timeout}s fetching source image "
+            "(fetch_timeout)",
+            504,
         ) from e
     except requests.RequestException as e:
         # includes a timeout while reading the body, which requests reports as
         # a ConnectionError
         raise SourceError("Failed to fetch source image", 502) from e
-
-    return bytes(content)

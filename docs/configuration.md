@@ -136,15 +136,17 @@ nobody else can make new URLs.
 
 ## Limits
 
-These stop a single request from using excessive memory, CPU or bandwidth.
+These stop a single request from using excessive memory, CPU, bandwidth or
+disk.
 
 | Setting | Limits |
 |---|---|
-| `max_download_bytes` | Size of an image downloaded from a `url`. A larger declared `Content-Length` is rejected before downloading, and the download stops as soon as it passes the limit. |
+| `max_download_bytes` | Size of an image downloaded from a `url`: bandwidth, and disk in the input cache. A larger declared `Content-Length` is rejected before downloading, and the download stops as soon as it passes the limit. Downloads go to the input cache, or to a temporary file, so a large one isn't held in memory. |
 | `fetch_timeout` | Seconds to wait when downloading from a `url`: for the connection, and for each piece of data after that. It is not a limit on the whole download, so a host that keeps sending data slowly can take longer. |
-| `max_source_pixels` | Width × height of the source image, checked before it is decoded. |
-| `max_output_size` | Width and height (in pixels) of the image produced by `crop`, `cropratio`, `fit`, `pad`, `resize`, `resizemax`, `resizemin`, `resizepc` and `rotate`. |
+| `max_source_pixels` | Width × height of the source image, checked before it is decoded. This is the limit on memory: a decoded image needs up to 4 bytes per pixel, e.g. 200 MB for 50 million pixels, though a JPEG is often decoded at a reduced size (see [Speed](operations.md#speed)). |
+| `max_output_size` | Width and height (in pixels) of the image produced by an operation that can make it larger: `fit`, `pad`, `resize`, `resizemax`, `resizemin`, `resizepc` and `rotate`. A crop can't, so `crop` and `cropratio` aren't limited by it, even when the source is larger. |
 | `max_operations` | Number of operations. |
 | `max_blur_radius` | Radius for `gblur` and `unsharp`. |
 
-A request over a limit is an [error](python.md#errors).
+A request over a limit is an [error](python.md#errors). Its message names the
+setting, e.g. `Output larger than 4000px (max_output_size)`.

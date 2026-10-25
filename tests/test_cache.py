@@ -130,6 +130,45 @@ def test_input_cache(fake_fetch, tmp_path):
     assert len(os.listdir(tmp_path / "in")) == 1
 
 
+def test_input_cache_holds_the_download(fake_fetch, tmp_path):
+    body = png_bytes(size=(400, 300))
+    fake_fetch.response = FakeResponse(body)
+    config = Config(
+        signed_urls=False,
+        allowed_urls=["https://example.com/"],
+        input_cache_dir=tmp_path / "in",
+    )
+    assert handle_request(config, "url=https://example.com/a.png").status == 200
+    [name] = os.listdir(tmp_path / "in")
+    assert (tmp_path / "in" / name).read_bytes() == body
+
+
+def test_failed_download_leaves_nothing_in_the_input_cache(fake_fetch, tmp_path):
+    # abandoned part way through, at max_download_bytes
+    fake_fetch.response = FakeResponse(b"x" * 200_000)
+    config = Config(
+        signed_urls=False,
+        allowed_urls=["https://example.com/"],
+        input_cache_dir=tmp_path / "in",
+        max_download_bytes=100_000,
+    )
+    assert handle_request(config, "url=https://example.com/a.png").status == 400
+    assert os.listdir(tmp_path / "in") == []
+
+
+def test_unwritable_input_cache_still_returns_the_image(fake_fetch, tmp_path, caplog):
+    # a cache folder inside a file can never be created
+    fake_fetch.response = FakeResponse(png_bytes())
+    (tmp_path / "file").write_bytes(b"")
+    config = Config(
+        signed_urls=False,
+        allowed_urls=["https://example.com/"],
+        input_cache_dir=tmp_path / "file" / "c",
+    )
+    assert handle_request(config, "url=https://example.com/a.png").status == 200
+    assert "Can't write cache file" in caplog.text
+
+
 def test_failed_fetch_does_not_use_expired_input(fake_fetch, tmp_path):
     fake_fetch.response = FakeResponse(png_bytes())
     config = Config(

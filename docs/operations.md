@@ -50,7 +50,7 @@ unknown name or invalid arguments are an error.
 | `colorize` | `black,white` | Convert to grey, then map black and white to these hex colours (without `#`), e.g. `202060,ffd080`. |
 | `contour` | | Trace the edges. |
 | `contrast` | `factor` | `1` leaves the image unchanged. |
-| `crop` | `left,top,right,bottom` | Crop to a box, in pixels. |
+| `crop` | `left,top,right,bottom` | Crop to a box, in pixels. The part of the box outside the image is ignored, and a box entirely outside it is an error. |
 | `cropratio` | `ratio` | Crop the centre to a width / height ratio, e.g. `1` for a square or `1.5` for 3:2. |
 | `emboss` | | An embossed effect. |
 | `equalize` | | Even out the histogram. |
@@ -115,6 +115,9 @@ fifth of the memory. The result looks the same.
 
 It only applies when the first operation that sets the size (`fit`, `pad`,
 `resize`, `resizemax` or `resizemin`) comes before any that work in the
-source's pixels, such as `crop`, `resizepc`, `rotate`, `gblur` or `unsharp`.
-So put the resize first where you can, e.g. `fit,300,300|gblur,2` rather
-than `gblur,2|fit,300,300`. `cropratio` and colour changes can go anywhere.
+source's pixels, such as `resizepc`, `rotate`, `gblur` or `unsharp`. So put
+the resize first where you can, e.g. `fit,300,300|gblur,2` rather than
+`gblur,2|fit,300,300`. Crops and colour changes can go anywhere: a `crop`
+box is given in the source's pixels, and is scaled to match, e.g.
+`crop,0,0,4000,3000|resize,400,300` on a 6000 × 4000 photo decodes it at a
+quarter of the size.
