@@ -4,6 +4,12 @@ All notable changes to this project are listed here. It follows
 [semantic versioning](https://semver.org): while the version is 0.x, a minor
 release may change the API.
 
+## 0.3.0
+
+- `image_size()` returns a source image's size, after its EXIF orientation,
+  reading only its header. A `url` source goes to the input cache, so a
+  thumbnail made from it next doesn't download it again.
+
 ## 0.2.0
 
 - `crop` and `cropratio` are no longer limited by `max_output_size`, as a crop

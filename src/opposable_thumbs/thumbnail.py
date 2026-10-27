@@ -80,6 +80,23 @@ def save_thumbnail(
     job.encode(path)
 
 
+def image_size(config, *, file=None, url=None):
+    """The (width, height) of a source image, after its EXIF orientation is
+    applied (unless config.apply_exif_orientation is False), so it matches
+    the image the operations see, e.g. for crop boxes.
+
+    Give one of `file` or `url`, as for make_thumbnail(). Only the image's
+    header is read, but a `url` source is downloaded, to the input cache if
+    there is one, so a thumbnail made from it next doesn't download it
+    again. Raises ThumbnailError if the image can't be read.
+    """
+    job = _Job(config, file, url, [], None, None)
+    size = job.check_source() and job.read_size()
+    if not size:
+        raise job.error()
+    return size
+
+
 def handle_request(config, query, if_none_match=None):
     """Answer a web request for a thumbnail with a Result: an HTTP response.
 
@@ -293,20 +310,37 @@ class _Job:
         with ExitStack() as files:
             return self.open_source_from(files)
 
-    def open_source_from(self, files):
-        # a file is opened by path, or a download from a file, so only its
-        # header is read until the size has been checked
+    def open_image(self, files):
+        # the source, opened but not decoded, or None. a file is opened by
+        # path, or a download from a file, so only its header is read
         formats = list(self.config.allowed_formats)
         try:
             if self.source_type == "file":
-                source = Image.open(self.source, formats=formats)
-            else:
-                source = Image.open(self.download(files), formats=formats)
+                return Image.open(self.source, formats=formats)
+            return Image.open(self.download(files), formats=formats)
         except SourceError as e:
             self.add_error(str(e), e.status)
-            return False
         except Exception:
             self.add_error("Failed to open image", 404)
+        return None
+
+    def read_size(self):
+        # (width, height) of the source as the operations see it, after the
+        # EXIF orientation, or None. only the header is read
+        with ExitStack() as files:
+            source = self.open_image(files)
+            if source is None:
+                return None
+            with source:
+                width, height = source.size
+                if self.config.apply_exif_orientation and _turns_sideways(source):
+                    width, height = height, width
+                return width, height
+
+    def open_source_from(self, files):
+        # only the header is read until the size has been checked
+        source = self.open_image(files)
+        if source is None:
             return False
 
         # the source is closed at the end of this block, as Pillow keeps a

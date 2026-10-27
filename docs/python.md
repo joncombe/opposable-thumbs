@@ -50,6 +50,22 @@ otherwise the format of the path's extension (e.g. `.webp`), otherwise the
 same format as `make_thumbnail()`. Raises [`ThumbnailError`](#errors) if the
 thumbnail can't be made.
 
+## image_size()
+
+```python
+from opposable_thumbs import image_size
+
+width, height = image_size(config, url="https://media.example.com/photo.jpg")
+```
+
+The source image's size, after its EXIF orientation is applied (unless
+`apply_exif_orientation` is off), so it matches the image the operations
+see. Useful for a crop editor that shows a small thumbnail but saves `crop`
+boxes in the source's pixels. Give one of `file` or `url`. Only the header is
+read, but a `url` is downloaded in full, to the [input cache](caching.md) if
+there is one, so a thumbnail made from it next doesn't download it again.
+Raises [`ThumbnailError`](#errors) if the image can't be read.
+
 ## handle_request()
 
 ```python
@@ -118,8 +134,8 @@ What `handle_request()` returns.
 
 ## Errors
 
-Every problem found is reported, not just the first. `make_thumbnail()` and
-`save_thumbnail()` raise `ThumbnailError`, with the messages in `.errors`
+Every problem found is reported, not just the first. `make_thumbnail()`,
+`save_thumbnail()` and `image_size()` raise `ThumbnailError`, with the messages in `.errors`
 and an HTTP status in `.status`. `handle_request()` returns a `Result` with
 that status and the messages as plain text, one per line; they are also in
 `result.errors`. The status is that of the first error:

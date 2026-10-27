@@ -14,6 +14,7 @@ from opposable_thumbs import (
     Thumbnail,
     ThumbnailError,
     handle_request,
+    image_size,
     make_thumbnail,
     thumbnail_query,
 )
@@ -203,3 +204,41 @@ def test_integration_without_its_framework(framework):
         f"import opposable_thumbs.{framework}"
     )
     assert f"pip install opposable-thumbs[{framework}]" in result.stderr
+
+
+def test_image_size(images, config):
+    assert image_size(config, file="images/rgb.png") == (40, 30)
+
+
+def test_image_size_applies_exif_orientation(images, config):
+    assert image_size(config, file="images/sideways.jpg") == (20, 40)
+    config = Config(
+        roots={"images": images}, signed_urls=False, apply_exif_orientation=False
+    )
+    assert image_size(config, file="images/sideways.jpg") == (40, 20)
+
+
+def test_image_size_from_url_fills_input_cache(fake_fetch, tmp_path):
+    fake_fetch.response = FakeResponse(png_bytes((50, 20)))
+    config = Config(
+        signed_urls=False,
+        allowed_urls=["https://example.com/"],
+        input_cache_dir=tmp_path / "input",
+    )
+    assert image_size(config, url="https://example.com/a.png") == (50, 20)
+    assert len(os.listdir(tmp_path / "input")) == 1
+
+
+@pytest.mark.parametrize(
+    "kwargs, status",
+    [
+        ({}, 400),
+        ({"file": "images/missing.png"}, 404),
+        ({"file": "images/not-an-image.png"}, 404),
+        ({"file": "../secret.png"}, 403),
+    ],
+)
+def test_image_size_errors(images, config, kwargs, status):
+    with pytest.raises(ThumbnailError) as e:
+        image_size(config, **kwargs)
+    assert e.value.status == status

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opposable-thumbs"
-version = "0.2.0"
+version = "0.3.0"
 description = "Thumbnails and image manipulation driven by URL query strings, for any Python project."
 readme = "README.md"
 license = "BSD-3-Clause"
